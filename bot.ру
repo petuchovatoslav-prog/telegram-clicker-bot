@@ -1,0 +1,162 @@
+import telebot
+import random
+import os
+import time
+
+# Токен из переменных окружения
+TOKEN = os.environ.get('BOT_TOKEN')
+
+bot = telebot.TeleBot(TOKEN)
+
+# База данных
+users = {}
+
+# Кнопки
+def main_menu():
+    keyboard = telebot.types.InlineKeyboardMarkup(row_width=2)
+    b1 = telebot.types.InlineKeyboardButton('🪙 КЛИКНУТЬ', callback_data='click')
+    b2 = telebot.types.InlineKeyboardButton('⬆️ АПГРЕЙД', callback_data='upgrade')
+    b3 = telebot.types.InlineKeyboardButton('🎲 МОНЕТКА', callback_data='coin')
+    b4 = telebot.types.InlineKeyboardButton('🎁 ПРОМОКОД', callback_data='promo')
+    b5 = telebot.types.InlineKeyboardButton('📊 ПРОФИЛЬ', callback_data='profile')
+    keyboard.add(b1, b2, b3, b4, b5)
+    return keyboard
+
+# Старт
+@bot.message_handler(commands=['start'])
+def start(message):
+    user_id = message.from_user.id
+    if user_id not in users:
+        users[user_id] = {
+            'balance': 100,
+            'power': 1,
+            'clicks': 0,
+            'level': 0,
+            'total': 0,
+            'promos': [],
+            'wins': 0,
+            'losses': 0
+        }
+    
+    text = f"👋 Привет, {message.from_user.first_name}!\n💰 Баланс: 100\n⚡ Сила клика: 1"
+    bot.send_message(message.chat.id, text, reply_markup=main_menu())
+
+# Кнопки
+@bot.callback_query_handler(func=lambda call: True)
+def handle_buttons(call):
+    user_id = call.from_user.id
+    user = users[user_id]
+    
+    if call.data == 'click':
+        user['balance'] += user['power']
+        user['clicks'] += 1
+        user['total'] += 1
+        
+        text = f"✅ +{user['power']} монет!\n💰 Баланс: {user['balance']}\n📊 Прогресс: {user['clicks']}/100"
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu())
+    
+    elif call.data == 'upgrade':
+        if user['clicks'] >= 100:
+            user['clicks'] = 0
+            user['level'] += 1
+            
+            if user['level'] == 1: user['power'] = 2
+            elif user['level'] == 2: user['power'] = 5
+            elif user['level'] == 3: user['power'] = 10
+            elif user['level'] == 4: user['power'] = 25
+            elif user['level'] == 5: user['power'] = 50
+            elif user['level'] == 6: user['power'] = 100
+            elif user['level'] == 7: user['power'] = 250
+            elif user['level'] == 8: user['power'] = 500
+            elif user['level'] == 9: user['power'] = 1000
+            elif user['level'] == 10: user['power'] = 2500
+            elif user['level'] == 11: user['power'] = 5000
+            elif user['level'] == 12: user['power'] = 10000
+            elif user['level'] == 13: user['power'] = 25000
+            elif user['level'] == 14: user['power'] = 50000
+            elif user['level'] >= 15: user['power'] = 100000
+            
+            text = f"⬆️ АПГРЕЙД!\n🔨 Уровень: {user['level']}\n⚡ Сила: {user['power']}"
+            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu())
+        else:
+            bot.answer_callback_query(call.id, f"❌ Нужно ещё {100 - user['clicks']} кликов!", show_alert=True)
+    
+    elif call.data == 'coin':
+        text = f"🎲 МОНЕТКА 50/50\n💰 Баланс: {user['balance']}\n\nВыбери сторону:"
+        
+        keyboard = telebot.types.InlineKeyboardMarkup()
+        b1 = telebot.types.InlineKeyboardButton('🦅 ОРЁЛ', callback_data='heads')
+        b2 = telebot.types.InlineKeyboardButton('💲 РЕШКА', callback_data='tails')
+        b3 = telebot.types.InlineKeyboardButton('🔙 НАЗАД', callback_data='back')
+        keyboard.add(b1, b2, b3)
+        
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=keyboard)
+    
+    elif call.data in ['heads', 'tails']:
+        text = f"💰 Напиши сумму ставки (макс: {user['balance']}):"
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id)
+        bot.register_next_step_handler(call.message, process_bet, call.data)
+    
+    elif call.data == 'promo':
+        text = "🎁 ВВЕДИ ПРОМОКОД:\n\nДоступные:\ntest - 1000 монет"
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id)
+        bot.register_next_step_handler(call.message, process_promo)
+    
+    elif call.data == 'profile':
+        text = (f"📊 ПРОФИЛЬ\n\n"
+                f"💰 Баланс: {user['balance']}\n"
+                f"⚡ Сила: {user['power']}\n"
+                f"🔨 Уровень: {user['level']}\n"
+                f"📊 Прогресс: {user['clicks']}/100\n"
+                f"📈 Кликов всего: {user['total']}\n"
+                f"🎲 Монетка: {user['wins']}✅ / {user['losses']}❌")
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu())
+    
+    elif call.data == 'back':
+        text = f"👋 Главное меню\n💰 Баланс: {user['balance']}\n⚡ Сила: {user['power']}"
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu())
+
+# Обработка ставки
+def process_bet(message, side):
+    user_id = message.from_user.id
+    user = users[user_id]
+    
+    try:
+        bet = int(message.text)
+        if bet > user['balance']:
+            bot.send_message(message.chat.id, "❌ Недостаточно монет!", reply_markup=main_menu())
+            return
+        
+        user['balance'] -= bet
+        result = random.choice(['heads', 'tails'])
+        
+        if result == side:
+            user['balance'] += bet * 2
+            user['wins'] += 1
+            text = f"🎉 ПОБЕДА! +{bet * 2} монет"
+        else:
+            user['losses'] += 1
+            text = f"😞 ПРОИГРЫШ! -{bet} монет"
+        
+        bot.send_message(message.chat.id, text, reply_markup=main_menu())
+    except:
+        bot.send_message(message.chat.id, "❌ Ошибка!", reply_markup=main_menu())
+
+# Обработка промокода
+def process_promo(message):
+    user_id = message.from_user.id
+    user = users[user_id]
+    code = message.text.lower()
+    
+    if code == 'test' and code not in user['promos']:
+        user['balance'] += 1000
+        user['promos'].append(code)
+        text = "✅ Промокод активирован! +1000 монет"
+    else:
+        text = "❌ Неверный или уже использованный код!"
+    
+    bot.send_message(message.chat.id, text, reply_markup=main_menu())
+
+# Запуск
+print("Бот запущен!")
+bot.infinity_polling()
